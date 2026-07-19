@@ -7,13 +7,18 @@ import (
 	"time"
 )
 
+var resultChan = make(chan string)
+
 func dumpHandler(w http.ResponseWriter, r *http.Request) {
 	response, err := io.ReadAll(r.Body)
-	result := FakeAIProcess((string(response)))
-	if err != nil {
-		panic("something went wrong")
-	}
-	w.Write([]byte(result))
+	go func() {
+		result := FakeAIProcess((string(response)))
+		resultChan <- result
+		if err != nil {
+			panic("something went wrong")
+		}
+	}()
+	w.Write([]byte("Git it processing"))
 }
 
 func FakeAIProcess(text string) string {
@@ -22,8 +27,14 @@ func FakeAIProcess(text string) string {
 
 }
 
+func latestHandler(w http.ResponseWriter, r *http.Request) {
+	result := <-resultChan
+	w.Write(([]byte(result)))
+}
+
 func main() {
 	fmt.Println("Server Starting")
 	http.HandleFunc("/dump", dumpHandler)
+	http.HandleFunc("/latest", latestHandler)
 	http.ListenAndServe(":8080", nil)
 }
