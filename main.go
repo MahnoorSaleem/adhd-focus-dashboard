@@ -10,22 +10,27 @@ import (
 
 var latestResult string
 var mu sync.Mutex
+var jobQueue = make(chan string, 10) // holds up to 10 pending jobs
 
 func dumpHandler(w http.ResponseWriter, r *http.Request) {
 	response, err := io.ReadAll(r.Body)
-	go func() {
-		result := FakeAIProcess((string(response)))
-		mu.Lock()
-		latestResult = result
-		mu.Unlock()
-		if err != nil {
-			panic("something went wrong")
-		}
-	}()
-	w.Write([]byte("Git it processing"))
+	if err != nil {
+		panic(err)
+	}
+	// go func() {
+	// 	result := fakeAIProcess((string(response)))
+	// 	mu.Lock()
+	// 	latestResult = result
+	// 	mu.Unlock()
+	// 	if err != nil {
+	// 		panic("something went wrong")
+	// 	}
+	// }()
+	jobQueue <- string(response)
+	w.Write([]byte("Got it processing"))
 }
 
-func FakeAIProcess(text string) string {
+func fakeAIProcess(text string) string {
 	time.Sleep((3 * time.Second))
 	return "Task: " + text
 
@@ -39,9 +44,25 @@ func latestHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write(([]byte(result)))
 }
 
+func worker(id int) {
+	for text := range jobQueue {
+		fmt.Println("Worker", id, "Started at", time.Now().Format("15:04:05"), "-", text)
+		result := fakeAIProcess(text)
+		mu.Lock()
+		latestResult = result
+		mu.Unlock()
+		fmt.Println("Worker", id, "Finished at", time.Now().Format("15:04:05"), "-", result)
+	}
+
+}
+
 func main() {
 	fmt.Println("Server Starting")
 	http.HandleFunc("/dump", dumpHandler)
 	http.HandleFunc("/latest", latestHandler)
+	for i := 1; i <= 3; i++ {
+		go worker(i)
+	}
 	http.ListenAndServe(":8080", nil)
+
 }
