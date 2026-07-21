@@ -4,16 +4,20 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 	"time"
 )
 
-var resultChan = make(chan string)
+var latestResult string
+var mu sync.Mutex
 
 func dumpHandler(w http.ResponseWriter, r *http.Request) {
 	response, err := io.ReadAll(r.Body)
 	go func() {
 		result := FakeAIProcess((string(response)))
-		resultChan <- result
+		mu.Lock()
+		latestResult = result
+		mu.Unlock()
 		if err != nil {
 			panic("something went wrong")
 		}
@@ -28,7 +32,10 @@ func FakeAIProcess(text string) string {
 }
 
 func latestHandler(w http.ResponseWriter, r *http.Request) {
-	result := <-resultChan
+	mu.Lock()
+	result := latestResult
+	mu.Unlock()
+
 	w.Write(([]byte(result)))
 }
 
