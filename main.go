@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -89,14 +90,19 @@ func callAI(text string) string {
 	if err != nil {
 		return "Error building request"
 	}
-	req, err := http.NewRequest("POST", "https://api.groq.com/openai/v1/chat/completions", bytes.NewBuffer(jsonData))
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "POST", "https://api.groq.com/openai/v1/chat/completions", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return "Error creating request"
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+groqAPIKey)
+
 	client := &http.Client{}
 	resp, err := client.Do(req)
+
 	if err != nil {
 		return "Error sending request"
 	}
