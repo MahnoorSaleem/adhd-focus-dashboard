@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -8,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -36,6 +38,7 @@ type groqResponse struct {
 }
 
 func dumpHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 	response, err := io.ReadAll(r.Body)
 	if err != nil {
 		panic(err)
@@ -60,6 +63,7 @@ func fakeAIProcess(text string) string {
 }
 
 func latestHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 	mu.Lock()
 	result := latestResult
 	mu.Unlock()
@@ -104,6 +108,7 @@ func callAI(text string) string {
 	resp, err := client.Do(req)
 
 	if err != nil {
+		fmt.Println("REAL ERROR:", err)
 		return "Error sending request"
 	}
 	defer resp.Body.Close()
@@ -124,7 +129,33 @@ func callAI(text string) string {
 
 }
 
+func loadEnvFile(path string) {
+	file, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, value, found := strings.Cut(line, "=")
+		if !found {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		if _, exists := os.LookupEnv(key); !exists {
+			os.Setenv(key, value)
+		}
+	}
+}
+
 func main() {
+	loadEnvFile(".env")
 	groqAPIKey = os.Getenv("GROQ_KEY")
 	if groqAPIKey == "" {
 		fmt.Println("Warning: GROQ_KEY not set!")
