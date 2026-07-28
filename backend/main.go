@@ -19,6 +19,10 @@ var mu sync.Mutex
 var jobQueue = make(chan string, 10) // holds up to 10 pending jobs
 var groqAPIKey string
 
+// SSE
+var clients = make(map[chan string]bool)
+var clientsMu sync.Mutex
+
 type groqRequest struct {
 	Model    string    `json:"model"`
 	Messages []message `json:"messages"`
@@ -75,9 +79,17 @@ func worker(id int) {
 	for text := range jobQueue {
 		fmt.Println("Worker", id, "Started at", time.Now().Format("15:04:05"), "-", text)
 		result := callAI(text)
+
 		mu.Lock()
 		latestResult = result
 		mu.Unlock()
+
+		clientsMu.Lock()
+		for clientChan := range clients {
+			clientChan <- result
+		}
+		clientsMu.Unlock()
+
 		fmt.Println("Worker", id, "Finished at", time.Now().Format("15:04:05"), "-", result)
 	}
 
@@ -154,6 +166,34 @@ func loadEnvFile(path string) {
 	}
 }
 
+func eventsHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	messageChan := make(chan string)
+
+	clientsMu.Lock()
+	clients[messageChan] = true
+	clientsMu.Unlock()
+
+	// loop here, waiting for messages, writing them to w
+	for {
+		select {
+		case msg := <-messageChan:
+			fmt.Fprintf(w, "data: %s\n\n", msg)
+			w.(http.Flusher).Flush()
+		// clean up (remove from clients map) when client disconnects
+		case <-r.Context().Done():
+			clientsMu.Lock()
+			delete(clients, messageChan)
+			clientsMu.Unlock()
+			return
+		}
+	}
+
+}
+
 func main() {
 	loadEnvFile(".env")
 	groqAPIKey = os.Getenv("GROQ_KEY")
@@ -167,6 +207,8 @@ func main() {
 	for i := 1; i <= 3; i++ {
 		go worker(i)
 	}
+
+	http.HandleFunc("/events", eventsHandler)
 	http.ListenAndServe(":8080", nil)
 
 }
